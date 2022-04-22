@@ -4,11 +4,11 @@
 #include <math.h>
 #include <GL/glew.h>
 #include <GL/freeglut.h>
-
-#include "math_3d.h"
+#include "pipeline.h"
 
 GLuint VBO;
-GLuint gWorldLocation;
+GLuint IBO;
+GLuint gWVPLocation;
 
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
@@ -18,21 +18,26 @@ static const char* pVS = "                                                      
                                                                                     \n\
 layout (location = 0) in vec3 Position;                                             \n\
                                                                                     \n\
-uniform mat4 gWorld;                                                                \n\
+uniform mat4 gWVP;                                                                  \n\
+                                                                                    \n\
+out vec4 Color;                                                                     \n\
                                                                                     \n\
 void main()                                                                         \n\
 {                                                                                   \n\
-    gl_Position = gWorld * vec4(Position, 1.0);                                     \n\
+    gl_Position = gWVP * vec4(Position, 1.0);                                       \n\
+    Color = vec4(clamp(Position, 0.0, 1.0), 1.0);                                   \n\
 }";
 
 static const char* pFS = "                                                          \n\
 #version 330                                                                        \n\
                                                                                     \n\
+in vec4 Color;                                                                      \n\
+                                                                                    \n\
 out vec4 FragColor;                                                                 \n\
                                                                                     \n\
 void main()                                                                         \n\
 {                                                                                   \n\
-    FragColor = vec4(1.0, 0.0, 0.0, 1.0);                                           \n\
+    FragColor = Color;                                                              \n\
 }";
 
 static void RenderSceneCB()
@@ -41,22 +46,25 @@ static void RenderSceneCB()
 
     static float Scale = 0.0f;
 
-    Scale += 0.001f;
+    Scale += 0.1f;
 
-    Matrix4f World;
+    Pipeline p;
+    p.Rotate(0.0f, Scale, 0.0f);
+    p.WorldPos(0.0f, 0.0f, 3.0f);
+    Vector3f CameraPos(0.0f, 0.0f, -3.0f);
+    Vector3f CameraTarget(0.0f, 0.0f, 2.0f);
+    Vector3f CameraUp(0.0f, 1.0f, 0.0f);
+    p.SetCamera(CameraPos, CameraTarget, CameraUp);
+    p.SetPerspectiveProj(60.0f, WINDOW_WIDTH, WINDOW_HEIGHT, 1.0f, 100.0f);
 
-    World.m[0][0] = sinf(Scale);    World.m[0][1] = 0.0f;   World.m[0][2] = 0.0f;        World.m[0][3] = 0.0f;
-    World.m[1][0] = 0.0f;    World.m[1][1] = cosf(Scale);    World.m[1][2] = 0.0f;        World.m[1][3] = 0.0f;
-    World.m[2][0] = 0.0f;         World.m[2][1] = 0.0f;             World.m[2][2] = sinf(Scale);        World.m[2][3] = 0.0f;
-    World.m[3][0] = 0.0f;         World.m[3][1] = 0.0f;             World.m[3][2] = 0.0f;        World.m[3][3] = 1.0f;
-
-    glUniformMatrix4fv(gWorldLocation, 1, GL_TRUE, &World.m[0][0]);
+    glUniformMatrix4fv(gWVPLocation, 1, GL_TRUE, (const GLfloat*)p.GetTrans());
 
     glEnableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO);
 
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glDrawElements(GL_TRIANGLES, 12, GL_UNSIGNED_INT, 0);
 
     glDisableVertexAttribArray(0);
 
@@ -72,14 +80,27 @@ static void InitializeGlutCallbacks()
 
 static void CreateVertexBuffer()
 {
-    Vector3f Vertices[3];
-    Vertices[0] = Vector3f(-1.0f, -1.0f, 0.0f);
-    Vertices[1] = Vector3f(1.0f, -1.0f, 0.0f);
-    Vertices[2] = Vector3f(0.0f, 1.0f, 0.0f);
+    Vector3f Vertices[4];
+    Vertices[0] = Vector3f(-1.0f, -1.0f, 0.5773f);
+    Vertices[1] = Vector3f(0.0f, -1.0f, -1.15475);
+    Vertices[2] = Vector3f(1.0f, -1.0f, 0.5773f);
+    Vertices[3] = Vector3f(0.0f, 1.0f, 0.0f);
 
-    glGenBuffers(1, &VBO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertices), Vertices, GL_STATIC_DRAW);
+ 	glGenBuffers(1, &VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(Vertices), Vertices, GL_STATIC_DRAW);
+}
+
+static void CreateIndexBuffer()
+{
+    unsigned int Indices[] = { 0, 3, 1,
+                               1, 3, 2,
+                               2, 3, 0,
+                               0, 2, 1 };
+
+    glGenBuffers(1, &IBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Indices), Indices, GL_STATIC_DRAW);
 }
 
 static void AddShader(GLuint ShaderProgram, const char* pShaderText, GLenum ShaderType)
@@ -94,7 +115,7 @@ static void AddShader(GLuint ShaderProgram, const char* pShaderText, GLenum Shad
     const GLchar* p[1];
     p[0] = pShaderText;
     GLint Lengths[1];
-    Lengths[0] = strlen(pShaderText);
+    Lengths[0]= strlen(pShaderText);
     glShaderSource(ShaderObj, 1, p, Lengths);
     glCompileShader(ShaderObj);
     GLint success;
@@ -126,11 +147,11 @@ static void CompileShaders()
 
     glLinkProgram(ShaderProgram);
     glGetProgramiv(ShaderProgram, GL_LINK_STATUS, &Success);
-    if (Success == 0) {
-        glGetProgramInfoLog(ShaderProgram, sizeof(ErrorLog), NULL, ErrorLog);
-        fprintf(stderr, "Error linking shader program: '%s'\n", ErrorLog);
+	if (Success == 0) {
+		glGetProgramInfoLog(ShaderProgram, sizeof(ErrorLog), NULL, ErrorLog);
+		fprintf(stderr, "Error linking shader program: '%s'\n", ErrorLog);
         exit(1);
-    }
+	}
 
     glValidateProgram(ShaderProgram);
     glGetProgramiv(ShaderProgram, GL_VALIDATE_STATUS, &Success);
@@ -142,30 +163,31 @@ static void CompileShaders()
 
     glUseProgram(ShaderProgram);
 
-    gWorldLocation = glGetUniformLocation(ShaderProgram, "gWorld");
-    assert(gWorldLocation != 0xFFFFFFFF);
+    gWVPLocation = glGetUniformLocation(ShaderProgram, "gWVP");
+    assert(gWVPLocation != 0xFFFFFFFF);
 }
 
 int main(int argc, char** argv)
 {
     glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
+    glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGBA);
     glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
     glutInitWindowPosition(100, 100);
-    glutCreateWindow("Tutorial 08");
+    glutCreateWindow("Tutorial 13");
 
     InitializeGlutCallbacks();
 
     // Must be done after glut is initialized!
     GLenum res = glewInit();
     if (res != GLEW_OK) {
-        fprintf(stderr, "Error: '%s'\n", glewGetErrorString(res));
-        return 1;
+      fprintf(stderr, "Error: '%s'\n", glewGetErrorString(res));
+      return 1;
     }
 
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
     CreateVertexBuffer();
+    CreateIndexBuffer();
 
     CompileShaders();
 
